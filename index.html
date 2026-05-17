@@ -1,26 +1,187 @@
-<!doctype html>
+<!DOCTYPE html>
 <html lang="zh-CN">
 <head>
-  <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width,initial-scale=1">
-  <title>红外风扇控制器</title>
-  <link rel="stylesheet" href="style.css">
-  <link rel="manifest" href="manifest.json">
-  <meta name="theme-color" content="#0b84ff">
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,user-scalable=no">
+<meta name="theme-color" content="#0b84ff">
+<title>红外风扇遥控器</title>
+<link rel="manifest" href="manifest.json">
+<link rel="stylesheet" href="style.css">
 </head>
 <body>
-  <main>
-    <h1>红外风扇控制器</h1>
-    <section class="card status-bar" id="statusBar">加载中...</section>
 
-    <section id="tabPage"></section>
-  </main>
-  <nav class="bottomNav">
-    <a href="#" data-tab="remote" class="active">遥控器</a>
-    <a href="#" data-tab="settings">设置</a>
-    <a href="#" data-tab="tasks">任务</a>
-    <a href="#" data-tab="logs">日志</a>
-  </nav>
-  <script src="app.js"></script>
+<header id="statusBar">
+  <div class="status-row">
+    <span id="sbNetwork">--</span>
+    <span id="sbIp">--</span>
+    <span id="sbTime">--</span>
+  </div>
+  <div class="status-row">
+    <span id="sbLevel">挡位: --</span>
+    <span id="sbPower">--</span>
+    <span id="sbTask">任务: 空闲</span>
+    <span id="sbMessage">--</span>
+  </div>
+  <button id="btnSettings" class="settings-gear" title="IP设置">&#9881;</button>
+</header>
+
+<nav id="tabBar">
+  <button class="tab active" data-tab="remote">遥控器</button>
+  <button class="tab" data-tab="setup">设置</button>
+  <button class="tab" data-tab="tasks">任务</button>
+  <button class="tab" data-tab="logs">日志</button>
+</nav>
+
+<main>
+
+<section id="tab-remote" class="tab-content active">
+  <div class="card">
+    <div class="level-display">
+      <span class="level-value" id="remoteLevel">--</span>
+      <span class="level-label">挡</span>
+    </div>
+    <div class="level-bar-wrap">
+      <div class="level-bar" id="levelBar"></div>
+    </div>
+  </div>
+
+  <div class="card btn-grid">
+    <button class="btn btn-power" data-action="power">开关</button>
+    <button class="btn btn-up" data-action="speedUp">升一挡</button>
+    <button class="btn btn-down" data-action="speedDown">降一挡</button>
+    <button class="btn" data-action="oscillate">摇头</button>
+    <button class="btn" data-action="mode">模式</button>
+  </div>
+
+  <div class="card">
+    <h3>挡位校准</h3>
+    <div class="form-row">
+      <select id="calLevel" class="input">
+        <option value="1">1</option><option value="2">2</option><option value="3">3</option>
+        <option value="4">4</option><option value="5">5</option><option value="6">6</option>
+        <option value="7">7</option><option value="8">8</option><option value="9">9</option>
+        <option value="10">10</option><option value="11">11</option><option value="12">12</option>
+      </select>
+      <button class="btn" id="btnCalLevel">设为当前挡位</button>
+    </div>
+  </div>
+
+  <div class="card">
+    <h3>开关状态校准</h3>
+    <div class="form-row">
+      <button class="btn" id="btnCalPowerOn">设为开</button>
+      <button class="btn" id="btnCalPowerOff">设为关</button>
+    </div>
+  </div>
+</section>
+
+<section id="tab-setup" class="tab-content">
+  <div class="card">
+    <h3>红外学习 / 发送</h3>
+    <table class="code-table">
+      <thead><tr><th>功能</th><th>已学</th><th>学习码</th><th>操作</th></tr></thead>
+      <tbody id="codeTableBody"></tbody>
+    </table>
+  </div>
+
+  <div class="card">
+    <h3>网络配置</h3>
+    <div class="form-group">
+      <label>模式</label>
+      <select id="netMode" class="input">
+        <option value="staFallback">STA 失败回 AP</option>
+        <option value="ap">仅 AP</option>
+      </select>
+    </div>
+    <div class="form-group">
+      <label>WiFi SSID</label>
+      <input id="netStaSsid" class="input" placeholder="家里WiFi名称" maxlength="32">
+    </div>
+    <div class="form-group">
+      <label>WiFi 密码</label>
+      <input id="netStaPassword" type="password" class="input" placeholder="留空不修改" maxlength="64">
+    </div>
+    <div class="form-group">
+      <label>AP SSID</label>
+      <input id="netApSsid" class="input" placeholder="配置热点名称" maxlength="32">
+    </div>
+    <div class="form-group">
+      <label>AP 密码</label>
+      <input id="netApPassword" type="password" class="input" placeholder="至少8位，留空不修改" maxlength="64">
+    </div>
+    <button class="btn btn-primary" id="btnNetworkSave">保存网络配置</button>
+  </div>
+
+  <div class="card">
+    <h3>恢复出厂设置</h3>
+    <button class="btn btn-danger" id="btnReset">恢复出厂（清空所有学习码和设置）</button>
+  </div>
+</section>
+
+<section id="tab-tasks" class="tab-content">
+  <div class="card">
+    <h3>一次性定时</h3>
+    <div class="form-row">
+      <input id="timerWait" type="number" class="input" placeholder="等待分钟" min="0" max="1440" style="width:80px">
+      <select id="timerAction" class="input">
+        <option value="up">升一挡</option><option value="down">降一挡</option>
+        <option value="set">设为目标挡位</option><option value="power">开关</option>
+        <option value="powerOn">开机</option><option value="powerOff">关机</option>
+        <option value="oscillate">摇头</option><option value="mode">模式</option>
+      </select>
+      <input id="timerTarget" type="number" class="input" placeholder="目标挡位" min="1" max="12" style="width:80px;display:none">
+      <button class="btn" id="btnTimerStart">启动</button>
+    </div>
+  </div>
+
+  <div class="card">
+    <h3>多步任务链</h3>
+    <div id="taskChainSteps"></div>
+    <button class="btn btn-sm" id="btnAddStep">添加步骤</button>
+    <button class="btn btn-primary" id="btnTaskChainStart">启动任务链</button>
+    <button class="btn btn-danger" id="btnTaskCancel">取消任务链</button>
+  </div>
+
+  <div class="card">
+    <h3>NTP 定点任务</h3>
+    <div class="form-row">
+      <label><input type="checkbox" id="ctEnabled">启用</label>
+      <label><input type="checkbox" id="ctOnce">仅一次</label>
+    </div>
+    <div id="clockTaskSteps"></div>
+    <button class="btn btn-sm" id="btnAddClockStep">添加步骤</button>
+    <button class="btn btn-primary" id="btnClockTaskSave">保存定点任务</button>
+  </div>
+</section>
+
+<section id="tab-logs" class="tab-content">
+  <div class="card">
+    <ul id="logList" class="log-list"></ul>
+  </div>
+</section>
+
+</main>
+
+<div id="toast" class="toast hidden"></div>
+
+<div id="ipModal" class="modal hidden">
+  <div class="modal-content">
+    <h3>连接设置</h3>
+    <label>ESP8266 IP 地址</label>
+    <input id="ipInput" class="input" placeholder="如 192.168.4.1">
+    <div class="modal-btns">
+      <button class="btn btn-primary" id="btnIpSave">连接</button>
+      <button class="btn" id="btnIpClose">取消</button>
+    </div>
+  </div>
+</div>
+
+<script src="app.js"></script>
+<script>
+if ('serviceWorker' in navigator) {
+  navigator.serviceWorker.register('sw.js');
+}
+</script>
+
 </body>
 </html>

@@ -1,411 +1,428 @@
 (function () {
   'use strict';
 
-  const IP_KEY = 'esp_ip';
-  const MAX_TASK_STEPS = 8;
-  const MAX_LEVEL = 12;
-  const ACTION_COUNT = 5;
-  let currentTab = 'remote';
-  let statusTimer;
-  let statusData = null;
+  var IP_KEY = 'esp_ip';
+  var POLL_INTERVAL = 5000;
+  var statusTimer = null;
+  var statusData = null;
 
-  const ACTIONS = [
-    { id: 'power', label: '开关' },
-    { id: 'speedUp', label: '升一档' },
-    { id: 'speedDown', label: '降一档' },
-    { id: 'oscillate', label: '摇头' },
-    { id: 'mode', label: '模式' }
-  ];
+  var dom = {};
 
-  const TASK_ACTION_OPTS = [
-    { id: 'up', label: '升一档' },
-    { id: 'down', label: '降一档' },
-    { id: 'set', label: '设为目标挡位' },
-    { id: 'powerOn', label: '开机' },
-    { id: 'powerOff', label: '关机' },
-    { id: 'power', label: '开关' },
-    { id: 'oscillate', label: '摇头' },
-    { id: 'mode', label: '模式' }
-  ];
-
-  function levelOptionsHtml(selected) {
-    let html = '';
-    for (let i = 1; i <= MAX_LEVEL; i++) {
-      html += `<option value="${i}"${i === selected ? ' selected' : ''}>${i}挡</option>`;
-    }
-    return html;
-  }
-
-  function taskActionOptionsHtml(selected) {
-    return TASK_ACTION_OPTS.map(o =>
-      `<option value="${o.id}"${o.id === selected ? ' selected' : ''}>${o.label}</option>`
-    ).join('');
-  }
-
-  function taskActionLabel(action) {
-    const found = TASK_ACTION_OPTS.find(o => o.id === action);
-    return found ? found.label : '未知';
-  }
+  function $(sel) { return document.querySelector(sel); }
+  function $$(sel) { return document.querySelectorAll(sel); }
 
   function getBaseUrl() {
-    let ip = localStorage.getItem(IP_KEY);
-    if (ip) return ip;
-    ip = prompt('请输入 ESP8266 IP 地址 (例如 192.168.4.1)', '192.168.4.1');
-    if (ip) {
-      localStorage.setItem(IP_KEY, ip);
-      return ip;
+    var ip = localStorage.getItem(IP_KEY);
+    if (!ip) { showIpModal(); return ''; }
+    return ip;
+  }
+
+  function api(method, path, bodyObj) {
+    var ip = getBaseUrl();
+    if (!ip) return Promise.reject(new Error('no ip'));
+    var url = 'http://' + ip + path;
+    var opts = { method: method, mode: 'cors' };
+    if (method === 'POST' && bodyObj) {
+      opts.headers = { 'Content-Type': 'application/x-www-form-urlencoded' };
+      opts.body = new URLSearchParams(bodyObj).toString();
     }
-    return '192.168.4.1';
+    return fetch(url, opts).then(function (r) { return r.json(); });
   }
 
-  async function api(method, path, body) {
-    const url = `http://${getBaseUrl()}${path}`;
-    const opts = { method, headers: { 'Content-Type': 'application/json' } };
-    if (body) opts.body = JSON.stringify(body);
-    const res = await fetch(url, opts);
-    return res.json();
+  function showToast(msg, isErr) {
+    var t = dom.toast;
+    t.textContent = msg;
+    t.className = 'toast ' + (isErr ? 'error' : '');
+    clearTimeout(t._t); t._t = setTimeout(function () { t.className = 'toast hidden'; }, 3000);
   }
 
-  function showMessage(msg, type) {
-    const el = document.getElementById('messageToast');
-    if (!el) {
-      const t = document.createElement('div');
-      t.id = 'messageToast';
-      t.style.cssText = 'position:fixed;top:12px;left:50%;transform:translateX(-50%);z-index:100;padding:10px 20px;border-radius:10px;color:#fff;font-size:15px;max-width:90%;text-align:center;transition:opacity 0.3s';
-      document.body.appendChild(t);
-    }
-    const toast = document.getElementById('messageToast');
-    toast.textContent = msg;
-    toast.style.opacity = '1';
-    toast.style.background = type === 'error' ? '#d92d20' : '#097b3c';
-    clearTimeout(toast._timer);
-    toast._timer = setTimeout(() => { toast.style.opacity = '0'; }, 3000);
+  function showIpModal() {
+    dom.ipModal.classList.remove('hidden');
+    dom.ipInput.value = localStorage.getItem(IP_KEY) || '192.168.4.1';
+    dom.ipInput.focus();
   }
 
-  function showError(msg) { showMessage(msg, 'error'); }
-
-  function updateStatusBar(data) {
-    statusData = data;
-    let html = '网络：' + escHtml(data.networkMode) + ' / ' + escHtml(data.ip);
-    html += '\n时间：' + escHtml(data.timeText);
-    html += '\n当前挡位：<span class="ok">' + data.currentLevel + '</span> / ' + MAX_LEVEL;
-    html += '\n开关状态：' + escHtml(data.powerStateLabel);
-    html += '\n任务链：';
-    if (data.taskRunning && data.taskCurrent) {
-      html += '<span class="ok">运行中</span>，第 ' + data.taskStepIndex + '/' + data.taskStepCount + ' 步，';
-      html += escHtml(data.taskCurrent.label) + '，剩余 ' + data.taskRemainingSeconds + ' 秒';
-      if (data.taskNext) {
-        html += '\n下一步：' + escHtml(data.taskNext.label);
-      }
-    } else {
-      html += '未运行';
-    }
-    html += '\n学习：';
-    if (data.learnActive) {
-      html += '<span class="warn">' + escHtml(data.learnAction) + ' 剩余 ' + data.learnRemaining + ' 秒</span>';
-    } else {
-      html += '未进行';
-    }
-    html += '\n上次解码：<code>' + escHtml(data.lastDecoded) + '</code>';
-    html += '\n消息：' + escHtml(data.lastMessage);
-    document.getElementById('statusBar').innerHTML = html;
-  }
-
-  function escHtml(str) {
-    const div = document.createElement('div');
-    div.textContent = str || '';
-    return div.innerHTML;
-  }
-
-  async function refreshStatus() {
-    try {
-      const data = await api('GET', '/api/status');
+  function refreshStatus() {
+    api('GET', '/api/status').then(function (data) {
+      statusData = data;
       updateStatusBar(data);
-      renderCurrentPage(data);
-    } catch (e) {
-      showError('连接失败，请检查 IP 地址');
-    }
+      updateRemoteTab(data);
+      updateSetupTab(data);
+      updateTasksTab(data);
+    }).catch(function () {
+      showToast('连接失败，请检查IP地址', true);
+    });
   }
 
   function startPolling() {
     clearInterval(statusTimer);
-    statusTimer = setInterval(refreshStatus, 5000);
+    statusTimer = setInterval(refreshStatus, POLL_INTERVAL);
     refreshStatus();
   }
 
-  function renderCurrentPage(data) {
-    switch (currentTab) {
-      case 'remote': renderRemote(data); break;
-      case 'settings': renderSettings(data); break;
-      case 'tasks': renderTasks(data); break;
-      case 'logs': renderLogs(); break;
+  function updateStatusBar(d) {
+    dom.sbNetwork.textContent = d.networkMode;
+    dom.sbIp.textContent = d.ip;
+    dom.sbTime.textContent = d.timeText;
+    dom.sbLevel.textContent = '挡位: ' + d.currentLevel;
+    dom.sbPower.textContent = d.powerStateLabel;
+    if (d.powerState === 'on') dom.sbPower.style.color = '#34c759';
+    else if (d.powerState === 'off') dom.sbPower.style.color = '#ff3b30';
+    else dom.sbPower.style.color = '#8e8e93';
+
+    var taskInfo = '任务: ';
+    if (d.taskRunning) {
+      taskInfo += '运行中 第' + d.taskStepIndex + '/' + d.taskStepCount + '步';
+      if (d.taskRemainingSeconds > 0) taskInfo += ' (' + formatSeconds(d.taskRemainingSeconds) + ')';
+    } else {
+      taskInfo += '空闲';
+    }
+    dom.sbTask.textContent = taskInfo;
+    dom.sbMessage.textContent = d.lastMessage;
+  }
+
+  function formatSeconds(s) {
+    if (s < 60) return s + '秒';
+    var m = Math.floor(s / 60);
+    var sec = s % 60;
+    return m + '分' + (sec > 0 ? sec + '秒' : '');
+  }
+
+  function updateRemoteTab(d) {
+    dom.remoteLevel.textContent = d.currentLevel;
+    var pct = Math.round((d.currentLevel - 1) / (d.maxLevel - 1) * 100);
+    dom.levelBar.style.width = pct + '%';
+    dom.calLevel.value = d.currentLevel;
+  }
+
+  function updateSetupTab(d) {
+    var html = '';
+    for (var i = 0; i < d.codes.length; i++) {
+      var c = d.codes[i];
+      html += '<tr>';
+      html += '<td>' + c.label + '</td>';
+      html += '<td>' + (c.learned ? '&#10003;' : '&#10007;') + '</td>';
+      html += '<td class="code-cell">' + c.code + '</td>';
+      html += '<td><button class="btn btn-sm" data-learn="' + c.id + '">学习</button>&nbsp;';
+      html += '<button class="btn btn-sm" data-send="' + c.id + '">发送</button></td>';
+      html += '</tr>';
+    }
+    dom.codeTableBody.innerHTML = html;
+
+    dom.netMode.value = d.networkConfigMode;
+    dom.netStaSsid.value = d.staSsid || '';
+    dom.netApSsid.value = d.apSsid || '';
+  }
+
+  function updateTasksTab(d) {
+    if (d.taskRunning && d.taskCurrent) {
+      dom.btnTaskCancel.style.display = '';
+    } else {
+      dom.btnTaskCancel.style.display = 'none';
     }
   }
 
-  function renderRemote(data) {
-    let html = '<section class="card center"><h2>遥控器</h2>';
-    html += `<div class="small">当前记录挡位</div><div class="gear">${data.currentLevel}<span class="small"> / ${MAX_LEVEL}</span></div>`;
-    html += `<div class="small">开关状态：${escHtml(data.powerStateLabel)}</div>`;
-    html += '<div class="remoteGrid" style="margin-top:14px">';
-    html += '<button onclick="window._sendAction(\'power\')">开关</button>';
-    html += '<button onclick="window._sendAction(\'mode\')">模式</button>';
-    html += '<button onclick="window._sendAction(\'speedDown\')">降一档</button>';
-    html += '<button onclick="window._sendAction(\'speedUp\')">升一档</button>';
-    html += '<button onclick="window._sendAction(\'oscillate\')">摇头</button>';
-    html += '</div></section>';
-
-    html += '<section class="card"><h2>状态校准</h2>';
-    html += '<div class="small">风扇没有反馈，任务链里的开机/关机依赖这里的开关状态记录。</div>';
-    html += `<form class="inline" onsubmit="event.preventDefault();window._calibrateLevel()"><label>当前真实挡位 <select id="levelSelect">${levelOptionsHtml(data.currentLevel)}</select></label><button type="submit">校准挡位</button></form>`;
-    html += `<form class="inline" onsubmit="event.preventDefault();window._calibrateState()"><label>开关状态 <select id="powerSelect"><option value="unknown"${data.powerState === 'unknown' ? ' selected' : ''}>未知</option><option value="on"${data.powerState === 'on' ? ' selected' : ''}>开</option><option value="off"${data.powerState === 'off' ? ' selected' : ''}>关</option></select></label><button type="submit">校准开关</button></form></section>`;
-
-    document.getElementById('tabPage').innerHTML = html;
-  }
-
-  function renderSettings(data) {
-    let html = '<section class="card"><h2>红外按键</h2>';
-    for (let i = 0; i < ACTION_COUNT; i++) {
-      const code = data.codes[i];
-      html += '<div class="row"><div><b>' + escHtml(ACTIONS[i].label) + '</b> <span class="small">' + escHtml(ACTIONS[i].id) + '</span><br>';
-      if (code.learned) {
-        html += '<code>' + escHtml(code.code) + '</code>';
-      } else {
-        html += '<span class="warn">未学习</span>';
+  function updateLogsTab() {
+    api('GET', '/api/logs').then(function (d) {
+      var html = '';
+      for (var i = d.logs.length - 1; i >= 0; i--) {
+        var log = d.logs[i];
+        html += '<li><span class="log-time">' + log.time + '</span> ' + he(log.message) + '</li>';
       }
-      html += '</div><div class="buttons">';
-      html += `<button onclick="window._sendAction('${ACTIONS[i].id}')"${!code.learned ? ' disabled' : ''}>发送</button>`;
-      html += `<button class="secondary" onclick="window._learnAction('${ACTIONS[i].id}')">学习</button>`;
-      html += '</div></div>';
-    }
-    html += '</section>';
-
-    html += '<section class="card"><h2>联网设置</h2>';
-    html += '<form class="inline" onsubmit="event.preventDefault();window._saveNetwork()">';
-    html += `<label>模式 <select id="netMode"><option value="staFallback"${data.networkConfigMode === 'staFallback' ? ' selected' : ''}>STA 失败回 AP</option><option value="ap"${data.networkConfigMode === 'ap' ? ' selected' : ''}>仅 AP</option></select></label>`;
-    html += `<label>家里 WiFi 名称 <input class="wide" id="staSsid" maxlength="32" value="${escHtml(data.staSsid)}"></label>`;
-    html += '<label>家里 WiFi 密码 <input class="wide" id="staPassword" type="password" maxlength="64" placeholder="留空保留旧密码"></label>';
-    html += `<label>AP 热点名称 <input class="wide" id="apSsid" maxlength="32" value="${escHtml(data.apSsid)}"></label>`;
-    html += '<label>AP 热点密码 <input class="wide" id="apPassword" type="password" maxlength="64" placeholder="留空保留旧密码，非空至少8位"></label>';
-    html += '<button type="submit">保存并重新应用网络</button></form></section>';
-
-    html += '<section class="card"><h2>IP 地址设置</h2>';
-    html += `<div class="inline"><label>ESP8266 地址 <input id="ipInput" class="wide" value="${escHtml(getBaseUrl())}"></label><button onclick="window._saveIp()">保存</button></div></section>`;
-
-    html += '<section class="card"><button class="danger" onclick="if(confirm(\'确认清空所有学习码和设置？\'))window._resetAll()">清空学习码和设置</button></section>';
-    document.getElementById('tabPage').innerHTML = html;
+      dom.logList.innerHTML = html;
+    }).catch(function () {});
   }
 
-  function renderTasks(data) {
-    let html = '<section class="card"><h2>一次性定时</h2>';
-    html += '<form class="inline" onsubmit="event.preventDefault();window._startTimer()">';
-    html += '<label>等待 <input id="timerWait" type="number" min="0" max="1440" value="30"> 分钟</label>';
-    html += `<label>动作 <select id="timerAction">${taskActionOptionsHtml('up')}</select></label>`;
-    html += `<label>目标挡位 <select id="timerTarget">${levelOptionsHtml(3)}</select></label>`;
-    html += '<button type="submit">启动一次性定时</button></form></section>';
+  function he(s) { return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;'); }
 
-    html += '<section class="card"><h2>任务链</h2><div class="small">最多 8 步；空白等待会忽略。</div>';
-    html += '<form onsubmit="event.preventDefault();window._startTaskChain()"><input type="hidden" id="taskCount" value="8">';
-    for (let i = 0; i < MAX_TASK_STEPS; i++) {
-      const defVal = i === 0 ? '10' : i === 1 ? '20' : i === 2 ? '30' : '';
-      const defAction = i === 1 ? 'down' : i === 2 ? 'set' : 'up';
-      html += `<div class="row"><div class="inline"><b>步骤 ${i + 1}</b><label>等待 <input id="wait${i}" type="number" min="0" max="1440" value="${defVal}"> 分钟</label><label>动作 <select id="action${i}">${taskActionOptionsHtml(defAction)}</select></label><label>目标 <select id="target${i}">${levelOptionsHtml(3)}</select></label></div></div>`;
-    }
-    html += '<div class="buttons"><button type="submit">启动任务链</button><button class="danger" type="button" onclick="window._cancelTask()">取消任务链</button></div></form></section>';
-
-    html += '<section class="card"><h2>NTP 定时启动任务链</h2>';
-    html += `<div class="small">当前：${data.clockTask.enabled ? '已启用' : '未启用'}；每一步按自己的北京时间执行，同一分钟只触发一次。</div>`;
-    html += '<form onsubmit="event.preventDefault();window._saveClockTask()">';
-    html += `<label><input type="checkbox" id="clkEnabled" value="1"${data.clockTask.enabled ? ' checked' : ''}> 启用</label>`;
-    html += `<label><input type="checkbox" id="clkOnce" value="1"${data.clockTask.once ? ' checked' : ''}> 全部步骤触发一次后停用</label>`;
-    html += '<input type="hidden" id="clkCount" value="8">';
-    for (let i = 0; i < MAX_TASK_STEPS; i++) {
-      const step = data.clockTask.steps[i] || { hour: i === 0 ? 7 : 7, minute: 0, action: i === 0 ? 'powerOn' : 'set', targetLevel: 3 };
-      html += `<div class="row"><div class="inline"><b>定时步骤 ${i + 1}</b><label>时 <input id="clkHour${i}" type="number" min="0" max="23" value="${step.hour}"></label><label>分 <input id="clkMin${i}" type="number" min="0" max="59" value="${step.minute}"></label><label>动作 <select id="clkAction${i}">${taskActionOptionsHtml(step.action)}</select></label><label>目标 <select id="clkTarget${i}">${levelOptionsHtml(step.targetLevel)}</select></label></div></div>`;
-    }
-    html += '<div class="buttons"><button type="submit">保存定时任务</button><button class="danger" type="button" onclick="window._disableClockTask()">停用定时任务</button></div></form></section>';
-
-    document.getElementById('tabPage').innerHTML = html;
+  function sendAction(action) {
+    api('POST', '/api/send', { action: action }).then(function (r) {
+      showToast(r.message, !r.ok);
+      refreshStatus();
+    }).catch(function () { showToast('请求失败', true); });
   }
 
-  function renderLogs() {
-    let html = '<section class="card"><h2>最近日志</h2>';
-    html += '<div id="logsContent">加载中...</div></section>';
-    document.getElementById('tabPage').innerHTML = html;
-    loadLogs();
+  function makeTaskStepRow(index, stepData, prefix) {
+    var actions = [
+      ['up', '升一挡'], ['down', '降一挡'], ['set', '设为目标挡位'],
+      ['power', '开关'], ['powerOn', '开机'], ['powerOff', '关机'],
+      ['oscillate', '摇头'], ['mode', '模式']
+    ];
+    var actionOpts = actions.map(function (a) {
+      return '<option value="' + a[0] + '"' + (stepData && stepData.action === a[0] ? ' selected' : '') + '>' + a[1] + '</option>';
+    }).join('');
+
+    var waitName = prefix === 'h' ? '分钟' : '分钟';
+    var timeLabel = prefix === 'h' ? '时:分' : '等待分钟';
+
+    return '<div class="task-step" data-index="' + index + '">' +
+      '<span class="step-num">' + (index + 1) + '</span>' +
+      (prefix === 'h'
+        ? '<input class="input" name="' + prefix + 'hour' + index + '" type="number" min="0" max="23" value="' + (stepData ? stepData.hour : 0) + '" style="width:45px">:<input class="input" name="' + prefix + 'minute' + index + '" type="number" min="0" max="59" value="' + (stepData ? stepData.minute : 0) + '" style="width:45px">'
+        : '<input class="input" name="' + prefix + 'wait' + index + '" type="number" min="0" max="1440" value="' + (stepData ? stepData.waitMinutes : 0) + '" style="width:55px">&nbsp;' + waitName) +
+      ' <select class="input task-action-sel" name="' + prefix + 'action' + index + '">' + actionOpts + '</select>' +
+      ' <input class="input task-target" name="' + prefix + 'target' + index + '" type="number" min="1" max="12" value="' + (stepData ? stepData.targetLevel : 1) + '" style="width:45px;' + (stepData && stepData.needsTarget ? '' : 'display:none') + '">' +
+      ' <button class="btn btn-sm btn-remove-step">&times;</button>' +
+      '</div>';
   }
 
-  async function loadLogs() {
-    try {
-      const data = await api('GET', '/api/logs');
-      const logs = data.logs || [];
-      if (logs.length === 0) {
-        document.getElementById('logsContent').innerHTML = '<div class="small">暂无日志</div>';
+  function init() {
+    dom.statusBar = $('#statusBar');
+    dom.sbNetwork = $('#sbNetwork');
+    dom.sbIp = $('#sbIp');
+    dom.sbTime = $('#sbTime');
+    dom.sbLevel = $('#sbLevel');
+    dom.sbPower = $('#sbPower');
+    dom.sbTask = $('#sbTask');
+    dom.sbMessage = $('#sbMessage');
+    dom.toast = $('#toast');
+    dom.ipModal = $('#ipModal');
+    dom.ipInput = $('#ipInput');
+
+    dom.remoteLevel = $('#remoteLevel');
+    dom.levelBar = $('#levelBar');
+    dom.calLevel = $('#calLevel');
+    dom.codeTableBody = $('#codeTableBody');
+    dom.netMode = $('#netMode');
+    dom.netStaSsid = $('#netStaSsid');
+    dom.netStaPassword = $('#netStaPassword');
+    dom.netApSsid = $('#netApSsid');
+    dom.netApPassword = $('#netApPassword');
+    dom.logList = $('#logList');
+
+    dom.taskChainSteps = $('#taskChainSteps');
+    dom.clockTaskSteps = $('#clockTaskSteps');
+    dom.ctEnabled = $('#ctEnabled');
+    dom.ctOnce = $('#ctOnce');
+    dom.btnTaskCancel = $('#btnTaskCancel');
+
+    dom.timerWait = $('#timerWait');
+    dom.timerAction = $('#timerAction');
+    dom.timerTarget = $('#timerTarget');
+
+    // Tab switching
+    $$('.tab').forEach(function (btn) {
+      btn.addEventListener('click', function () {
+        var tabId = btn.dataset.tab;
+        $$('.tab').forEach(function (b) { b.classList.remove('active'); });
+        btn.classList.add('active');
+        $$('.tab-content').forEach(function (s) { s.classList.remove('active'); });
+        $('#tab-' + tabId).classList.add('active');
+        if (tabId === 'logs') updateLogsTab();
+      });
+    });
+
+    // Settings gear → IP modal
+    $('#btnSettings').addEventListener('click', showIpModal);
+    $('#btnIpSave').addEventListener('click', function () {
+      var ip = dom.ipInput.value.trim();
+      if (!ip) return;
+      localStorage.setItem(IP_KEY, ip);
+      dom.ipModal.classList.add('hidden');
+      startPolling();
+    });
+    $('#btnIpClose').addEventListener('click', function () { dom.ipModal.classList.add('hidden'); });
+
+    // Remote tab buttons
+    $$('#tab-remote [data-action]').forEach(function (btn) {
+      btn.addEventListener('click', function () { sendAction(btn.dataset.action); });
+    });
+
+    $('#btnCalLevel').addEventListener('click', function () {
+      api('POST', '/api/level', { level: dom.calLevel.value }).then(function (r) {
+        showToast(r.message, !r.ok); refreshStatus();
+      }).catch(function () { showToast('请求失败', true); });
+    });
+
+    $('#btnCalPowerOn').addEventListener('click', function () {
+      api('POST', '/api/state', { power: 'on' }).then(function (r) {
+        showToast(r.message, !r.ok); refreshStatus();
+      }).catch(function () { showToast('请求失败', true); });
+    });
+
+    $('#btnCalPowerOff').addEventListener('click', function () {
+      api('POST', '/api/state', { power: 'off' }).then(function (r) {
+        showToast(r.message, !r.ok); refreshStatus();
+      }).catch(function () { showToast('请求失败', true); });
+    });
+
+    // Setup tab - code table learn/send (delegated)
+    $('#tab-setup').addEventListener('click', function (e) {
+      var btn = e.target.closest('[data-learn]');
+      if (btn) {
+        api('POST', '/api/learn', { action: btn.dataset.learn }).then(function (r) {
+          showToast(r.message, !r.ok); refreshStatus();
+        }).catch(function () { showToast('请求失败', true); });
         return;
       }
-      let html = '';
-      for (let i = 0; i < logs.length; i++) {
-        const log = logs[i];
-        html += '<div class="row">';
-        html += '<div><b>' + escHtml(log.time) + '</b> <span class="small">运行 ' + log.uptimeSeconds + ' 秒</span><br>';
-        html += escHtml(log.message) + '</div></div>';
+      btn = e.target.closest('[data-send]');
+      if (btn) {
+        api('POST', '/api/send', { action: btn.dataset.send }).then(function (r) {
+          showToast(r.message, !r.ok); refreshStatus();
+        }).catch(function () { showToast('请求失败', true); });
+        return;
       }
-      document.getElementById('logsContent').innerHTML = html;
-    } catch (e) {
-      document.getElementById('logsContent').innerHTML = '<div class="warn">加载日志失败</div>';
+    });
+
+    // Network save
+    $('#btnNetworkSave').addEventListener('click', function () {
+      var body = {
+        mode: dom.netMode.value,
+        staSsid: dom.netStaSsid.value,
+        apSsid: dom.netApSsid.value
+      };
+      if (dom.netStaPassword.value) body.staPassword = dom.netStaPassword.value;
+      if (dom.netApPassword.value) body.apPassword = dom.netApPassword.value;
+      api('POST', '/api/network', body).then(function (r) {
+        showToast(r.message, !r.ok); refreshStatus();
+      }).catch(function () { showToast('请求失败', true); });
+    });
+
+    // Factory reset
+    $('#btnReset').addEventListener('click', function () {
+      if (!confirm('确定要恢复出厂设置？这将清空所有学习码、挡位和任务链。')) return;
+      api('POST', '/api/reset').then(function (r) {
+        showToast(r.message, !r.ok); refreshStatus();
+      }).catch(function () { showToast('请求失败', true); });
+    });
+
+    // Timer: show/hide target field
+    dom.timerAction.addEventListener('change', function () {
+      dom.timerTarget.style.display = dom.timerAction.value === 'set' ? '' : 'none';
+    });
+    // Delegate for dynamically added step selects
+    document.addEventListener('change', function (e) {
+      if (e.target.classList.contains('task-action-sel')) {
+        var row = e.target.closest('.task-step');
+        var targetInput = row.querySelector('.task-target');
+        if (targetInput) {
+          targetInput.style.display = e.target.value === 'set' ? '' : 'none';
+        }
+      }
+    });
+
+    $('#btnTimerStart').addEventListener('click', function () {
+      var body = { wait: dom.timerWait.value || 0, action: dom.timerAction.value };
+      if (dom.timerAction.value === 'set') body.target = dom.timerTarget.value || 1;
+      api('POST', '/api/timer', body).then(function (r) {
+        showToast(r.message, !r.ok); refreshStatus();
+      }).catch(function () { showToast('请求失败', true); });
+    });
+
+    // Task chain
+    $('#btnAddStep').addEventListener('click', function () {
+      var idx = dom.taskChainSteps.querySelectorAll('.task-step').length;
+      if (idx >= 8) { showToast('最多8步', true); return; }
+      dom.taskChainSteps.insertAdjacentHTML('beforeend', makeTaskStepRow(idx, null, ''));
+    });
+    $('#btnTaskChainStart').addEventListener('click', function () {
+      var rows = dom.taskChainSteps.querySelectorAll('.task-step');
+      if (rows.length === 0) { showToast('请先添加步骤', true); return; }
+      var body = { count: rows.length };
+      rows.forEach(function (row) {
+        var idx = row.dataset.index;
+        body['wait' + idx] = row.querySelector('[name="wait' + idx + '"]').value || 0;
+        body['action' + idx] = row.querySelector('[name="action' + idx + '"]').value;
+        if (row.querySelector('[name="action' + idx + '"]').value === 'set') {
+          body['target' + idx] = row.querySelector('[name="target' + idx + '"]').value || 1;
+        }
+      });
+      api('POST', '/api/task/start', body).then(function (r) {
+        showToast(r.message, !r.ok); refreshStatus();
+      }).catch(function () { showToast('请求失败', true); });
+    });
+    $('#btnTaskCancel').addEventListener('click', function () {
+      api('POST', '/api/task/cancel').then(function (r) {
+        showToast(r.message, !r.ok); refreshStatus();
+      }).catch(function () { showToast('请求失败', true); });
+    });
+    // Remove step button (delegated) + reindex
+    document.addEventListener('click', function (e) {
+      if (e.target.classList.contains('btn-remove-step')) {
+        var row = e.target.closest('.task-step');
+        if (!row) return;
+        var container = row.parentElement;
+        if (container === dom.taskChainSteps) {
+          row.remove();
+          reindexTaskSteps();
+        } else if (container === dom.clockTaskSteps) {
+          row.remove();
+          reindexClockSteps();
+        }
+      }
+    });
+
+    function reindexTaskSteps() {
+      var rows = dom.taskChainSteps.querySelectorAll('.task-step');
+      var steps = [];
+      rows.forEach(function (row) {
+        var idx = row.dataset.index;
+        steps.push({
+          wait: row.querySelector('[name="wait' + idx + '"]').value || 0,
+          action: row.querySelector('[name="action' + idx + '"]').value,
+          target: row.querySelector('[name="target' + idx + '"]').value || 1
+        });
+      });
+      dom.taskChainSteps.innerHTML = '';
+      steps.forEach(function (s, i) {
+        dom.taskChainSteps.insertAdjacentHTML('beforeend',
+          makeTaskStepRow(i, { waitMinutes: s.wait, action: s.action, targetLevel: s.target, needsTarget: s.action === 'set' }, ''));
+      });
+    }
+
+    function reindexClockSteps() {
+      var rows = dom.clockTaskSteps.querySelectorAll('.task-step');
+      var steps = [];
+      rows.forEach(function (row) {
+        var idx = row.dataset.index;
+        steps.push({
+          hour: row.querySelector('[name="hhour' + idx + '"]').value || 0,
+          minute: row.querySelector('[name="hminute' + idx + '"]').value || 0,
+          action: row.querySelector('[name="haction' + idx + '"]').value,
+          target: row.querySelector('[name="htarget' + idx + '"]').value || 1
+        });
+      });
+      dom.clockTaskSteps.innerHTML = '';
+      steps.forEach(function (s, i) {
+        dom.clockTaskSteps.insertAdjacentHTML('beforeend',
+          makeTaskStepRow(i, { hour: s.hour, minute: s.minute, action: s.action, targetLevel: s.target, needsTarget: s.action === 'set' }, 'h'));
+      });
+    }
+
+    // Clock task
+    $('#btnAddClockStep').addEventListener('click', function () {
+      var idx = dom.clockTaskSteps.querySelectorAll('.task-step').length;
+      if (idx >= 8) { showToast('最多8步', true); return; }
+      dom.clockTaskSteps.insertAdjacentHTML('beforeend', makeTaskStepRow(idx, null, 'h'));
+    });
+    $('#btnClockTaskSave').addEventListener('click', function () {
+      var rows = dom.clockTaskSteps.querySelectorAll('.task-step');
+      var body = {
+        enabled: dom.ctEnabled.checked ? '1' : '0',
+        once: dom.ctOnce.checked ? '1' : '0',
+        count: rows.length
+      };
+      rows.forEach(function (row) {
+        var idx = row.dataset.index;
+        body['hour' + idx] = row.querySelector('[name="hhour' + idx + '"]').value || 0;
+        body['minute' + idx] = row.querySelector('[name="hminute' + idx + '"]').value || 0;
+        body['action' + idx] = row.querySelector('[name="haction' + idx + '"]').value;
+        if (row.querySelector('[name="haction' + idx + '"]').value === 'set') {
+          body['target' + idx] = row.querySelector('[name="htarget' + idx + '"]').value || 1;
+        }
+      });
+      api('POST', '/api/clock-task', body).then(function (r) {
+        showToast(r.message, !r.ok); refreshStatus();
+      }).catch(function () { showToast('请求失败', true); });
+    });
+
+    // Start
+    if (localStorage.getItem(IP_KEY)) {
+      startPolling();
+    } else {
+      showIpModal();
     }
   }
 
-  function switchTab(tab) {
-    currentTab = tab;
-    document.querySelectorAll('.bottomNav a').forEach(a => a.classList.toggle('active', a.dataset.tab === tab));
-    if (statusData) renderCurrentPage(statusData); else refreshStatus();
-  }
-
-  document.querySelectorAll('.bottomNav a').forEach(a => {
-    a.addEventListener('click', e => { e.preventDefault(); switchTab(a.dataset.tab); });
-  });
-
-  window._sendAction = async function (action) {
-    try {
-      const result = await api('POST', '/api/send', { action });
-      showMessage(result.message, result.ok ? undefined : 'error');
-      refreshStatus();
-    } catch (e) { showError('请求失败'); }
-  };
-
-  window._learnAction = async function (action) {
-    try {
-      const result = await api('POST', '/api/learn', { action });
-      showMessage(result.message, result.ok ? undefined : 'error');
-      refreshStatus();
-    } catch (e) { showError('请求失败'); }
-  };
-
-  window._calibrateLevel = async function () {
-    const level = document.getElementById('levelSelect').value;
-    try {
-      const result = await api('POST', '/api/level', { level });
-      showMessage(result.message);
-      refreshStatus();
-    } catch (e) { showError('请求失败'); }
-  };
-
-  window._calibrateState = async function () {
-    const power = document.getElementById('powerSelect').value;
-    try {
-      const result = await api('POST', '/api/state', { power });
-      showMessage(result.message);
-      refreshStatus();
-    } catch (e) { showError('请求失败'); }
-  };
-
-  window._saveNetwork = async function () {
-    const body = {
-      mode: document.getElementById('netMode').value,
-      staSsid: document.getElementById('staSsid').value,
-      apSsid: document.getElementById('apSsid').value
-    };
-    const staPw = document.getElementById('staPassword').value;
-    if (staPw) body.staPassword = staPw;
-    const apPw = document.getElementById('apPassword').value;
-    if (apPw) body.apPassword = apPw;
-    try {
-      const result = await api('POST', '/api/network', body);
-      showMessage(result.message, result.ok ? undefined : 'error');
-    } catch (e) { showError('请求失败'); }
-  };
-
-  window._saveIp = function () {
-    const ip = document.getElementById('ipInput').value.trim();
-    if (ip) {
-      localStorage.setItem(IP_KEY, ip);
-      showMessage('IP 地址已保存');
-      refreshStatus();
-    }
-  };
-
-  window._resetAll = async function () {
-    try {
-      const result = await api('POST', '/api/reset');
-      showMessage(result.message);
-      refreshStatus();
-    } catch (e) { showError('请求失败'); }
-  };
-
-  window._startTimer = async function () {
-    const body = {
-      wait: document.getElementById('timerWait').value,
-      action: document.getElementById('timerAction').value
-    };
-    const target = document.getElementById('timerTarget');
-    if (target) body.target = target.value;
-    try {
-      const result = await api('POST', '/api/timer', body);
-      showMessage(result.message, result.ok ? undefined : 'error');
-      refreshStatus();
-    } catch (e) { showError('请求失败'); }
-  };
-
-  window._startTaskChain = async function () {
-    const count = parseInt(document.getElementById('taskCount').value) || MAX_TASK_STEPS;
-    const body = { count };
-    for (let i = 0; i < count; i++) {
-      const wEl = document.getElementById('wait' + i);
-      const aEl = document.getElementById('action' + i);
-      const tEl = document.getElementById('target' + i);
-      if (wEl && wEl.value !== '') body['wait' + i] = wEl.value;
-      if (aEl) body['action' + i] = aEl.value;
-      if (tEl) body['target' + i] = tEl.value;
-    }
-    try {
-      const result = await api('POST', '/api/task/start', body);
-      showMessage(result.message, result.ok ? undefined : 'error');
-      refreshStatus();
-    } catch (e) { showError('请求失败'); }
-  };
-
-  window._cancelTask = async function () {
-    try {
-      const result = await api('POST', '/api/task/cancel');
-      showMessage(result.message);
-      refreshStatus();
-    } catch (e) { showError('请求失败'); }
-  };
-
-  window._saveClockTask = async function () {
-    const body = {
-      enabled: document.getElementById('clkEnabled').checked ? '1' : '0',
-      once: document.getElementById('clkOnce').checked ? '1' : '0',
-      count: parseInt(document.getElementById('clkCount').value) || 8
-    };
-    for (let i = 0; i < MAX_TASK_STEPS; i++) {
-      const hEl = document.getElementById('clkHour' + i);
-      const mEl = document.getElementById('clkMin' + i);
-      const aEl = document.getElementById('clkAction' + i);
-      const tEl = document.getElementById('clkTarget' + i);
-      if (hEl && hEl.value !== '') body['hour' + i] = hEl.value;
-      if (mEl && mEl.value !== '') body['minute' + i] = mEl.value;
-      if (aEl) body['action' + i] = aEl.value;
-      if (tEl) body['target' + i] = tEl.value;
-    }
-    try {
-      const result = await api('POST', '/api/clock-task', body);
-      showMessage(result.message, result.ok ? undefined : 'error');
-      refreshStatus();
-    } catch (e) { showError('请求失败'); }
-  };
-
-  window._disableClockTask = async function () {
-    try {
-      const result = await api('POST', '/api/clock-task', { enabled: '0' });
-      showMessage(result.message);
-      refreshStatus();
-    } catch (e) { showError('请求失败'); }
-  };
-
-  if ('serviceWorker' in navigator) {
-    navigator.serviceWorker.register('sw.js');
-  }
-
-  startPolling();
+  document.addEventListener('DOMContentLoaded', init);
 })();

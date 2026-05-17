@@ -1,17 +1,21 @@
-const CACHE = 'irfan-v1';
-const FILES = [
+var CACHE = 'irfan-v1';
+var FILES = [
   './',
-  './index.html',
-  './app.js',
-  './style.css',
-  './manifest.json',
-  './icons/icon-192.png'
+  'index.html',
+  'app.js',
+  'style.css',
+  'manifest.json',
+  'icons/icon-192.png'
 ];
 
-self.addEventListener('install', e => {
-  e.waitUntil(caches.open(CACHE).then(c => c.addAll(FILES)));
+self.addEventListener('install', function (e) {
+  e.waitUntil(
+    caches.open(CACHE).then(function (c) { return c.addAll(FILES); })
+  );
 });
 
-self.addEventListener('fetch', e => {
-  e.respondWith(caches.match(e.request).then(r => r || fetch(e.request)));
+self.addEventListener('fetch', function (e) {
+  e.respondWith(
+    caches.match(e.request).then(function (r) { return r || fetch(e.request); })
+  );
 });
