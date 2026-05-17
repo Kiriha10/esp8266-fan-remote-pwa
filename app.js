@@ -49,8 +49,13 @@
       updateRemoteTab(data);
       updateSetupTab(data);
       updateTasksTab(data);
-    }).catch(function () {
-      showToast('连接失败，请检查IP地址', true);
+    }).catch(function (err) {
+      var msg = err && err.message ? err.message : String(err);
+      if (msg.indexOf('Failed to fetch') !== -1 || msg.indexOf('NetworkError') !== -1) {
+        showToast('无法连接 ' + (getBaseUrl() || '未知IP') + '，请确认手机连接了ESP热点且固件已更新', true);
+      } else {
+        showToast('请求失败: ' + msg, true);
+      }
     });
   }
 
@@ -130,7 +135,9 @@
         html += '<li><span class="log-time">' + log.time + '</span> ' + he(log.message) + '</li>';
       }
       dom.logList.innerHTML = html;
-    }).catch(function () {});
+    }).catch(function (err) {
+      dom.logList.innerHTML = '<li style="color:var(--danger)">加载失败: ' + ((err && err.message) || '无法连接') + '</li>';
+    });
   }
 
   function he(s) { return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;'); }
