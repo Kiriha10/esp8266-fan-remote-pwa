@@ -93,11 +93,15 @@
     return m + '分' + (sec > 0 ? sec + '秒' : '');
   }
 
+  function safeSetInput(el, value) {
+    if (document.activeElement !== el) el.value = value;
+  }
+
   function updateRemoteTab(d) {
     dom.remoteLevel.textContent = d.currentLevel;
     var pct = Math.round((d.currentLevel - 1) / (d.maxLevel - 1) * 100);
     dom.levelBar.style.width = pct + '%';
-    dom.calLevel.value = d.currentLevel;
+    safeSetInput(dom.calLevel, d.currentLevel);
   }
 
   function updateSetupTab(d) {
@@ -114,9 +118,9 @@
     }
     dom.codeTableBody.innerHTML = html;
 
-    dom.netMode.value = d.networkConfigMode;
-    dom.netStaSsid.value = d.staSsid || '';
-    dom.netApSsid.value = d.apSsid || '';
+    safeSetInput(dom.netMode, d.networkConfigMode);
+    safeSetInput(dom.netStaSsid, d.staSsid || '');
+    safeSetInput(dom.netApSsid, d.apSsid || '');
   }
 
   function updateTasksTab(d) {
