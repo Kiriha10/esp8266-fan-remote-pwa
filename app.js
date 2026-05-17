@@ -21,7 +21,7 @@
     var ip = getBaseUrl();
     if (!ip) return Promise.reject(new Error('no ip'));
     var url = 'http://' + ip + path;
-    var opts = { method: method, mode: 'cors' };
+    var opts = { method: method };
     if (method === 'POST' && bodyObj) {
       opts.headers = { 'Content-Type': 'application/x-www-form-urlencoded' };
       opts.body = new URLSearchParams(bodyObj).toString();

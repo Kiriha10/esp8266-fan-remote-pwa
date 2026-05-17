@@ -15,6 +15,8 @@ self.addEventListener('install', function (e) {
 });
 
 self.addEventListener('fetch', function (e) {
+  var url = new URL(e.request.url);
+  if (url.hostname !== self.location.hostname) return;
   e.respondWith(
     caches.match(e.request).then(function (r) { return r || fetch(e.request); })
   );
