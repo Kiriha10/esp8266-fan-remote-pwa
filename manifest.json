@@ -1,0 +1,13 @@
+{
+  "name": "红外风扇遥控器",
+  "short_name": "风扇遥控",
+  "start_url": ".",
+  "display": "standalone",
+  "background_color": "#f4f6f8",
+  "theme_color": "#0b84ff",
+  "icons": [{
+    "src": "icons/icon-192.png",
+    "sizes": "192x192",
+    "type": "image/png"
+  }]
+}
