@@ -5,6 +5,7 @@
   var POLL_INTERVAL = 5000;
   var statusTimer = null;
   var statusData = null;
+  var firstLoad = true;
 
   var dom = {};
 
@@ -43,12 +44,17 @@
   }
 
   function refreshStatus() {
-    api('GET', '/api/status').then(function (data) {
+    return api('GET', '/api/status').then(function (data) {
       statusData = data;
       updateStatusBar(data);
       updateRemoteTab(data);
       updateSetupTab(data);
       updateTasksTab(data);
+      if (firstLoad) {
+        firstLoad = false;
+        populateFormFields(data);
+      }
+      return data;
     }).catch(function (err) {
       var msg = err && err.message ? err.message : String(err);
       if (msg.indexOf('Failed to fetch') !== -1 || msg.indexOf('NetworkError') !== -1) {
@@ -93,15 +99,10 @@
     return m + '分' + (sec > 0 ? sec + '秒' : '');
   }
 
-  function safeSetInput(el, value) {
-    if (document.activeElement !== el) el.value = value;
-  }
-
   function updateRemoteTab(d) {
     dom.remoteLevel.textContent = d.currentLevel;
     var pct = Math.round((d.currentLevel - 1) / (d.maxLevel - 1) * 100);
     dom.levelBar.style.width = pct + '%';
-    safeSetInput(dom.calLevel, d.currentLevel);
   }
 
   function updateSetupTab(d) {
@@ -117,10 +118,17 @@
       html += '</tr>';
     }
     dom.codeTableBody.innerHTML = html;
+  }
 
-    safeSetInput(dom.netMode, d.networkConfigMode);
-    safeSetInput(dom.netStaSsid, d.staSsid || '');
-    safeSetInput(dom.netApSsid, d.apSsid || '');
+  function populateFormFields(d) {
+    dom.calLevel.value = d.currentLevel;
+    dom.netMode.value = d.networkConfigMode;
+    dom.netStaSsid.value = d.staSsid || '';
+    dom.netApSsid.value = d.apSsid || '';
+    if (d.clockTask) {
+      dom.ctEnabled.checked = d.clockTask.enabled;
+      dom.ctOnce.checked = d.clockTask.once;
+    }
   }
 
   function updateTasksTab(d) {
@@ -241,7 +249,7 @@
 
     $('#btnCalLevel').addEventListener('click', function () {
       api('POST', '/api/level', { level: dom.calLevel.value }).then(function (r) {
-        showToast(r.message, !r.ok); refreshStatus();
+        showToast(r.message, !r.ok); refreshStatus().then(populateFormFields);
       }).catch(function () { showToast('请求失败', true); });
     });
 
@@ -285,7 +293,7 @@
       if (dom.netStaPassword.value) body.staPassword = dom.netStaPassword.value;
       if (dom.netApPassword.value) body.apPassword = dom.netApPassword.value;
       api('POST', '/api/network', body).then(function (r) {
-        showToast(r.message, !r.ok); refreshStatus();
+        showToast(r.message, !r.ok); refreshStatus().then(populateFormFields);
       }).catch(function () { showToast('请求失败', true); });
     });
 
@@ -293,7 +301,7 @@
     $('#btnReset').addEventListener('click', function () {
       if (!confirm('确定要恢复出厂设置？这将清空所有学习码、挡位和任务链。')) return;
       api('POST', '/api/reset').then(function (r) {
-        showToast(r.message, !r.ok); refreshStatus();
+        showToast(r.message, !r.ok); refreshStatus().then(populateFormFields);
       }).catch(function () { showToast('请求失败', true); });
     });
 
@@ -423,7 +431,7 @@
         }
       });
       api('POST', '/api/clock-task', body).then(function (r) {
-        showToast(r.message, !r.ok); refreshStatus();
+        showToast(r.message, !r.ok); refreshStatus().then(populateFormFields);
       }).catch(function () { showToast('请求失败', true); });
     });
 
