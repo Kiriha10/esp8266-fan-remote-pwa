@@ -250,6 +250,9 @@
     dom.btnTaskCancel = $('#btnTaskCancel');
     dom.taskStatusCard = $('#taskStatusCard');
     dom.taskStatusContent = $('#taskStatusContent');
+    dom.btnExportCodes = $('#btnExportCodes');
+    dom.btnImportCodes = $('#btnImportCodes');
+    dom.importFileInput = $('#importFileInput');
 
     dom.timerWait = $('#timerWait');
     dom.timerAction = $('#timerAction');
@@ -340,6 +343,77 @@
         showToast(r.message, !r.ok); refreshStatus().then(populateFormFields);
       }).catch(function () { showToast('请求失败', true); });
     });
+
+    // Export IR codes
+    dom.btnExportCodes.addEventListener('click', function () {
+      if (!statusData || !statusData.codes) {
+        showToast('暂无数据，请先连接设备', true);
+        return;
+      }
+      var exportData = { version: 1, exportedAt: new Date().toISOString(), codes: statusData.codes };
+      var blob = new Blob([JSON.stringify(exportData, null, 2)], { type: 'application/json' });
+      var url = URL.createObjectURL(blob);
+      var a = document.createElement('a');
+      a.href = url;
+      a.download = 'irfan-codes-' + new Date().toISOString().slice(0, 10) + '.json';
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+      showToast('已导出 ' + statusData.codes.length + ' 组红外码');
+    });
+
+    // Import IR codes
+    dom.btnImportCodes.addEventListener('click', function () {
+      dom.importFileInput.click();
+    });
+    dom.importFileInput.addEventListener('change', function () {
+      var file = dom.importFileInput.files[0];
+      if (!file) return;
+      var reader = new FileReader();
+      reader.onload = function (e) {
+        try {
+          var data = JSON.parse(e.target.result);
+          if (!data.codes || !Array.isArray(data.codes)) {
+            showToast('无效的导入文件格式', true);
+            return;
+          }
+          var learned = data.codes.filter(function (c) { return c.learned; });
+          if (learned.length === 0) {
+            showToast('文件中没有已学习的红外码', true);
+            return;
+          }
+          importNextCode(learned, 0);
+        } catch (err) {
+          showToast('解析文件失败: ' + err.message, true);
+        }
+      };
+      reader.readAsText(file);
+      dom.importFileInput.value = '';
+    });
+
+    function importNextCode(codes, index) {
+      if (index >= codes.length) {
+        showToast('已导入 ' + codes.length + ' 组红外码');
+        refreshStatus();
+        return;
+      }
+      var c = codes[index];
+      var body = {
+        action: c.id,
+        protocol: c.protocol != null ? c.protocol : 0,
+        bits: c.bits != null ? c.bits : 0,
+        rawValue: c.rawValue || '0',
+        rawLength: c.rawLength != null ? c.rawLength : 0,
+        rawData: Array.isArray(c.rawData) ? c.rawData.join(',') : ''
+      };
+      api('POST', '/api/import', body).then(function (r) {
+        showToast(r.message, !r.ok);
+        if (r.ok) {
+          importNextCode(codes, index + 1);
+        }
+      }).catch(function () { showToast('导入请求失败', true); });
+    }
 
     // Timer: show/hide target field
     dom.timerAction.addEventListener('change', function () {
