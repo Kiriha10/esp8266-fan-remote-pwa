@@ -134,8 +134,42 @@
   function updateTasksTab(d) {
     if (d.taskRunning && d.taskCurrent) {
       dom.btnTaskCancel.style.display = '';
+      dom.taskStatusCard.style.display = '';
+
+      var tc = d.taskCurrent;
+      var tn = d.taskNext;
+      var html = '';
+
+      html += '<div class="task-now-step">';
+      html += '<div class="task-now-head">当前步骤 ' + tc.index + '/' + d.taskStepCount + '</div>';
+      html += '<div class="task-now-action">动作: <strong>' + tc.label + '</strong>';
+      if (tc.needsTarget) html += ' &rarr; 目标挡位 <strong>' + tc.targetLevel + ' 挡</strong>';
+      html += '</div>';
+      if (tc.waitMinutes > 0) {
+        html += '<div class="task-now-wait">等待 ' + tc.waitMinutes + ' 分钟';
+        if (tc.remainingSeconds > 0) html += ' (剩余约 ' + formatSeconds(tc.remainingSeconds) + ')';
+        html += '</div>';
+      } else {
+        html += '<div class="task-now-wait">无需等待，立即执行</div>';
+      }
+      html += '</div>';
+
+      if (tn) {
+        html += '<div class="task-next-step">';
+        html += '<span class="task-next-head">下一步 ' + tn.index + ':</span> ';
+        html += '<strong>' + tn.label + '</strong>';
+        if (tn.needsTarget) html += ' &rarr; ' + tn.targetLevel + ' 挡';
+        if (tn.waitMinutes > 0) html += ' (等待 ' + tn.waitMinutes + ' 分钟)';
+        html += '</div>';
+      } else {
+        html += '<div class="task-last-step">&#10003; 这是最后一步</div>';
+      }
+
+      dom.taskStatusContent.innerHTML = html;
     } else {
       dom.btnTaskCancel.style.display = 'none';
+      dom.taskStatusCard.style.display = 'none';
+      dom.taskStatusContent.innerHTML = '';
     }
   }
 
@@ -214,6 +248,8 @@
     dom.ctEnabled = $('#ctEnabled');
     dom.ctOnce = $('#ctOnce');
     dom.btnTaskCancel = $('#btnTaskCancel');
+    dom.taskStatusCard = $('#taskStatusCard');
+    dom.taskStatusContent = $('#taskStatusContent');
 
     dom.timerWait = $('#timerWait');
     dom.timerAction = $('#timerAction');

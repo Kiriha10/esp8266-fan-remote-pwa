@@ -1,4 +1,4 @@
-var CACHE = 'irfan-v1';
+var CACHE = 'irfan-v2';
 var FILES = [
   './',
   'index.html',
