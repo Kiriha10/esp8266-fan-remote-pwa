@@ -372,10 +372,20 @@
       if (!file) return;
       var reader = new FileReader();
       reader.onload = function (e) {
+        dom.importFileInput.value = '';
+        var text = e.target.result;
+        if (!text || text.trim().length === 0) {
+          showToast('文件为空，请选择有效的导出文件', true);
+          return;
+        }
         try {
-          var data = JSON.parse(e.target.result);
+          var data = JSON.parse(text);
+          if (!data || typeof data !== 'object') {
+            showToast('导入失败：JSON 内容不是对象', true);
+            return;
+          }
           if (!data.codes || !Array.isArray(data.codes)) {
-            showToast('无效的导入文件格式', true);
+            showToast('导入失败：文件中缺少 codes 数组（请选择"导出"生成的 JSON 文件）', true);
             return;
           }
           var learned = data.codes.filter(function (c) { return c.learned; });
@@ -388,8 +398,11 @@
           showToast('解析文件失败: ' + err.message, true);
         }
       };
+      reader.onerror = function () {
+        dom.importFileInput.value = '';
+        showToast('读取文件失败，请重试', true);
+      };
       reader.readAsText(file);
-      dom.importFileInput.value = '';
     });
 
     function importNextCode(codes, index) {
