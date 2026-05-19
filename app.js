@@ -171,6 +171,44 @@
       dom.taskStatusCard.style.display = 'none';
       dom.taskStatusContent.innerHTML = '';
     }
+
+    // Clock task schedule display
+    renderClockTaskInfo(d);
+  }
+
+  function renderClockTaskInfo(d) {
+    var html = '';
+    if (!d.clockTask) {
+      html = '<div class="clock-task-row" style="color:var(--text-secondary)">暂无配置</div>';
+    } else {
+      var ct = d.clockTask;
+      if (!d.timeSynced) {
+        html += '<div class="clock-task-row" style="color:#ff9f0a">未同步时间 — 连接 WiFi 后可同步</div>';
+      }
+      if (!ct.enabled) {
+        html += '<div class="clock-task-row" style="color:var(--text-secondary)">已停用</div>';
+      } else if (ct.count === 0) {
+        html += '<div class="clock-task-row" style="color:var(--text-secondary)">已启用，但未添加步骤</div>';
+      }
+      if (ct.steps && ct.steps.length > 0) {
+        html += '<div class="clock-task-row" style="margin-top:2px;color:var(--text-secondary);font-size:0.75rem">' +
+          (ct.enabled && d.timeSynced ? '已启用' : '') +
+          (ct.once ? ' · 仅执行一次' : ' · 每日重复') +
+          ' · ' + ct.steps.length + ' 个步骤</div>';
+        for (var i = 0; i < ct.steps.length; i++) {
+          var s = ct.steps[i];
+          var hh = ('0' + s.hour).slice(-2);
+          var mm = ('0' + s.minute).slice(-2);
+          html += '<div class="clock-task-row">';
+          html += '<span class="clock-task-time">' + hh + ':' + mm + '</span>';
+          html += '<span class="clock-task-label">' + s.label;
+          if (s.needsTarget) html += ' &rarr; ' + s.targetLevel + ' 挡';
+          html += '</span>';
+          html += '</div>';
+        }
+      }
+    }
+    dom.clockTaskInfo.innerHTML = html;
   }
 
   function updateLogsTab() {
@@ -247,6 +285,7 @@
     dom.clockTaskSteps = $('#clockTaskSteps');
     dom.ctEnabled = $('#ctEnabled');
     dom.ctOnce = $('#ctOnce');
+    dom.clockTaskInfo = $('#clockTaskInfo');
     dom.btnTaskCancel = $('#btnTaskCancel');
     dom.taskStatusCard = $('#taskStatusCard');
     dom.taskStatusContent = $('#taskStatusContent');

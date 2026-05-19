@@ -1,12 +1,11 @@
-var CACHE = 'irfan-v4';
+var CACHE = 'irfan-v5';
 var FILES = [
   './',
   'index.html',
   'app.js',
   'style.css',
   'manifest.json',
-  'icons/icon-192.png',
-  'icons/icon-512.png'
+  'icons/icon-192.png'
 ];
 
 self.addEventListener('install', function (e) {

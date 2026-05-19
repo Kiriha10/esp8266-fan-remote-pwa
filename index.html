@@ -154,6 +154,7 @@
 
   <div class="card">
     <h3>NTP 定点任务</h3>
+    <div id="clockTaskInfo" class="clock-task-info"></div>
     <div class="form-row">
       <label><input type="checkbox" id="ctEnabled">启用</label>
       <label><input type="checkbox" id="ctOnce">仅一次</label>
@@ -189,9 +190,7 @@
 <script src="app.js"></script>
 <script>
 if ('serviceWorker' in navigator) {
-  navigator.serviceWorker.register('sw.js')
-    .then(function(reg) { console.log('SW registered: ' + reg.scope); })
-    .catch(function(err) { console.error('SW failed: ' + err); });
+  navigator.serviceWorker.register('sw.js');
 }
 </script>
 
